@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 lang-frontend = { path = "../lang-frontend" }
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm13-0"] }
+anyhow = "1.0.56"
