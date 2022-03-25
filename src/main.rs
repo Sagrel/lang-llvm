@@ -5,10 +5,10 @@ use std::{collections::HashMap, env, fs};
 
 use inkwell::{
     types::{BasicType, BasicTypeEnum},
-    values::{BasicMetadataValueEnum, BasicValueEnum, CallableValue},
+    values::{BasicValueEnum, CallableValue},
 };
 use lang_frontend::{
-    ast::{Anotated, Ast},
+    ast::{Anotated, Ast, Declaration},
     inferer::Inferer,
     parse_file,
     token::Token,
@@ -43,12 +43,6 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    /// Gets a defined function given its name.
-    #[inline]
-    fn get_function(&self, name: &str) -> Option<FunctionValue<'ctx>> {
-        self.module.get_function(name)
-    }
-
     /// Returns the `FunctionValue` representing the function being compiled.
     #[inline]
     fn fn_value(&self) -> FunctionValue<'ctx> {
@@ -64,7 +58,7 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     // TODO Funtion types are turned into pointer types, that is not very nice
-    fn generate_type(&self, t: &Type) -> BasicTypeEnum {
+    fn generate_type(&self, t: &Type) -> BasicTypeEnum<'ctx> {
         match Inferer::get_most_concrete_type(t, self.type_table) {
             Type::Text => todo!(), // TODO This should be a vector type  self.context.const_string(string, null_terminated)
             Type::Number => self.context.f64_type().into(),
@@ -104,7 +98,7 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    fn compile(&mut self, (node, span, ty): Anotated<Ast>) -> anyhow::Result<BasicValueEnum> {
+    fn compile(&mut self, (node, span, ty): Anotated<Ast>) -> anyhow::Result<BasicValueEnum<'ctx>> {
         Ok(match node {
             Ast::Error => todo!(),
             Ast::Coment(_) => todo!(),
@@ -120,27 +114,39 @@ impl<'ctx> Compiler<'ctx> {
                 .context
                 .const_string(t.as_bytes(), false /* TODO investigate this */)
                 .into(),
-            Ast::Variable((Token::Ident(name), _)) => self
-                .builder
-                .build_load(
-                    *self
-                        .variables
-                        .get(&name)
-                        .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?,
-                    name.as_str(),
-                )
-                .into(),
+            Ast::Variable((Token::Ident(name), _)) => self.builder.build_load(
+                *self
+                    .variables
+                    .get(&name)
+                    .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?,
+                name.as_str(),
+            ),
             Ast::Declaration((Token::Ident(name), _), variant) => {
-                todo!()
+                match *variant {
+                    Declaration::Complete(_, _) => todo!(),
+                    Declaration::OnlyType(_) => todo!(),
+                    Declaration::OnlyValue(value, _) => {
+                        // TODO If it's a function add it to the module funtion list
+                        let ty = self.generate_type(value.2.as_ref().unwrap());
+                        let value = self.compile(value)?;
+                        self.variables.insert(name, value.into_pointer_value());
+
+                        // TODO do not return weird void
+                        self.context
+                            .struct_type(&[], true)
+                            .const_named_struct(&[])
+                            .into()
+                    }
+                }
             }
             Ast::Call(caller, args) => {
                 let caller = self.compile(*caller)?;
-                let args: Vec<_> = args
+                let args = args
                     .into_iter()
-                    .map(|arg| self.compile(arg).unwrap().into())
-                    .collect();
-
+                    .map(|arg| self.compile(arg).map(|res| res.into()))
+                    .collect::<Result<Vec<_>, _>>()?;
                 // TODO see set_tail_call()
+                // TODO handle void functions
                 self.builder
                     .build_call(
                         CallableValue::try_from(caller.into_pointer_value()).unwrap(),
@@ -171,79 +177,122 @@ impl<'ctx> Compiler<'ctx> {
                         .builder
                         .build_float_div(l.into_float_value(), r.into_float_value(), "add float")
                         .into(),
+                    _ => todo!(),
                 }
             }
             Ast::While(_, cond, body) => {
-                let body_block = self.context.append_basic_block(self.fn_value(), "body_block");
-                let after_block = self.context.append_basic_block(self.fn_value(), "after_block");
+                let body_block = self
+                    .context
+                    .append_basic_block(self.fn_value(), "body_block");
+                let after_block = self
+                    .context
+                    .append_basic_block(self.fn_value(), "after_block");
 
-                // while cond
+                // emit condition and first jump
                 let cond = self.compile(*cond)?;
-                self.builder.build_conditional_branch(cond.into_int_value(), body_block, after_block);
+                self.builder.build_conditional_branch(
+                    cond.into_int_value(),
+                    body_block,
+                    after_block,
+                );
 
-                //  { body... if cond do_again }
+                //  emit body and loop jump
                 self.builder.position_at_end(body_block);
                 self.compile(*body)?;
-                self.builder.build_conditional_branch(cond.into_int_value(), body_block, after_block);
-                
+                self.builder.build_conditional_branch(
+                    cond.into_int_value(),
+                    body_block,
+                    after_block,
+                );
+
+                let _body_block = self.builder.get_insert_block().unwrap(); // This adds the block?
+
                 // after the loop
                 self.builder.position_at_end(after_block);
-                
+
                 // TODO what to return?
                 todo!();
             }
             Ast::If(_, cond, if_body, _, else_body) => {
                 // build cond
                 let cond = self.compile(*cond)?;
-                
+
                 // branches
                 let if_block = self.context.append_basic_block(self.fn_value(), "if_block");
-                let else_block = self.context.append_basic_block(self.fn_value(), "else_block");
-                let after_block = self.context.append_basic_block(self.fn_value(), "after_block");
-                
-                // emit the jump
-                self.builder.build_conditional_branch(cond.into_int_value(), if_block, else_block);
+                let else_block = self
+                    .context
+                    .append_basic_block(self.fn_value(), "else_block");
+                let after_block = self
+                    .context
+                    .append_basic_block(self.fn_value(), "after_block");
 
-                
+                // emit the jump
+                self.builder
+                    .build_conditional_branch(cond.into_int_value(), if_block, else_block);
+
                 //  if body
                 self.builder.position_at_end(if_block);
                 let if_value = self.compile(*if_body)?;
                 self.builder.build_unconditional_branch(after_block);
 
-                let if_block = self.builder.get_insert_block().unwrap();    // This adds the block?
+                let if_block = self.builder.get_insert_block().unwrap(); // This adds the block?
 
                 //  else body
                 self.builder.position_at_end(else_block);
                 let else_value = self.compile(*else_body)?;
                 self.builder.build_unconditional_branch(after_block);
 
-                let else_block = self.builder.get_insert_block().unwrap();  // This adds the block?
-                
+                let else_block = self.builder.get_insert_block().unwrap(); // This adds the block?
+
                 // after the loop
                 self.builder.position_at_end(after_block);
 
                 // We create a phi value that return the value of the branch taken
-                let phi = self.builder.build_phi(self.generate_type(&ty.unwrap()), "if");
+                let phi = self
+                    .builder
+                    .build_phi(self.generate_type(&ty.unwrap()), "if");
 
-                phi.add_incoming(&[
-                    (&if_value, if_block),
-                    (&else_value, else_block),
-                ]);
-                
+                phi.add_incoming(&[(&if_value, if_block), (&else_value, else_block)]);
+
                 phi.as_basic_value()
-            },
+            }
             Ast::Tuple(args) => {
-                let values = args
+                let args = args
                     .into_iter()
-                    .map(|node| self.compile(node))
+                    .map(|arg| self.compile(arg))
                     .collect::<Result<Vec<_>, _>>()?;
+
                 self.generate_type(&ty.unwrap())
                     .into_struct_type()
-                    .const_named_struct(values.as_slice())
+                    .const_named_struct(args.as_slice())
                     .into()
             }
-            Ast::Block(_) => todo!(),
-            Ast::Lambda(_, _, _) => todo!(),
+            Ast::Block(nodes) => {
+                let mut res = None;
+
+                for node in nodes {
+                    res = Some(self.compile(node)?);
+                }
+                // TODO this should return nothing instead of empty struct
+                res.unwrap_or_else(|| {
+                    self.context
+                        .struct_type(&[], true)
+                        .const_named_struct(&[])
+                        .into()
+                })
+            }
+            Ast::Lambda(args, _, body) => {
+                let ret_type = self.generate_type(&body.2.unwrap());
+                let arg_types = args
+                    .into_iter()
+                    .map(|arg| self.generate_type(&arg.2.unwrap()).into())
+                    .collect::<Vec<_>>();
+                let lambda_type = ret_type.fn_type(arg_types.as_slice(), false);
+                // TODO give it a name
+                let lambda_value = self.module.add_function("anonymous", lambda_type, None);
+                // TODO is this ok?
+                lambda_value.as_global_value().as_pointer_value().into()
+            }
             _ => return Err(anyhow::anyhow!("Unexpected node at {:?}", span)),
         })
     }
