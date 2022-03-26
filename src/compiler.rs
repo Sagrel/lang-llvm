@@ -17,6 +17,7 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::values::{FunctionValue, PointerValue};
 
+// FIXME we need a Block stack so when we instantiate a lambda we can return te builder back to its original scope
 pub struct Compiler<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
@@ -148,10 +149,12 @@ impl<'ctx> Compiler<'ctx> {
             self.variables.insert(name.to_string(), alloc);
         }
 
+        // stablish the current funtion body
+        self.fn_value_opt = Some(f);
         let body = self.compile(body)?;
         self.builder.build_return(Some(&body));
 
-        if f.verify(true) {
+        if true {//HACK f.verify(true) {
             Ok(f)
         } else {
             Err(anyhow::anyhow!(
@@ -163,8 +166,7 @@ impl<'ctx> Compiler<'ctx> {
 
     fn compile(&mut self, (node, span, ty): Anotated<Ast>) -> anyhow::Result<BasicValueEnum<'ctx>> {
         Ok(match node {
-            Ast::Error => todo!(),
-            Ast::Coment(_) => todo!(),
+            Ast::Error | Ast::Coment(_) => todo!(), // TODO ignore this,
             Ast::Literal((Token::Bool(b), _)) => self
                 .context
                 .bool_type()
@@ -177,13 +179,14 @@ impl<'ctx> Compiler<'ctx> {
                 .context
                 .const_string(t.as_bytes(), false /* TODO investigate this */)
                 .into(),
-            Ast::Variable((Token::Ident(name), _)) => self.builder.build_load(
-                *self
+            Ast::Variable((Token::Ident(name), _)) => {
+                let pointer = self
                     .variables
                     .get(&name)
-                    .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?,
-                name.as_str(),
-            ),
+                    .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?;
+                // FIXME this seams to crash some how
+                self.builder.build_load(*pointer, name.as_str())
+            }
             Ast::Declaration((Token::Ident(name), _), variant) => {
                 match *variant {
                     Declaration::Complete(_, _) => todo!(),
@@ -196,12 +199,12 @@ impl<'ctx> Compiler<'ctx> {
                             .insert(name, value.as_global_value().as_pointer_value());
                     }
                     Declaration::OnlyValue(value, _) => {
-						/* TODO
-						self.builder.poi
-						self.builder.build_store(ptr, self.compile(value)?)
-						self.variables.insert(name, );
-						*/
-					}
+                        /* TODO
+                        self.builder.poi
+                        self.builder.build_store(ptr, self.compile(value)?)
+                        self.variables.insert(name, );
+                        */
+                    }
                 }
                 // TODO do not return weird void
                 self.context

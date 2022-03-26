@@ -7,16 +7,20 @@ use lang_frontend::{
 
 mod compiler;
 
-pub fn compile_and_run<T>(ast: Vec<Anotated<Ast>>, type_table: &[Type], print_module: bool) -> anyhow::Result<T> {
+pub fn compile_and_run<T>(
+    ast: Vec<Anotated<Ast>>,
+    type_table: &[Type],
+    print_module: bool,
+) -> anyhow::Result<T> {
     let context = Context::create();
 
     let compiler = Compiler::new(&context, type_table);
 
     let module = compiler.compile_module(ast)?;
 
-	if print_module {
-		module.print_to_stderr();
-	}
+    if print_module {
+        module.print_to_stderr();
+    }
 
     let jit = module
         .create_jit_execution_engine(OptimizationLevel::None)
@@ -51,26 +55,50 @@ mod tests {
     }
 
     #[test]
-    fn main_69() -> anyhow::Result<()>{
+    fn main_69() -> anyhow::Result<()> {
         let src = include_str!("../examples/main_69.lang");
         let res = parse_and_run::<f64>(src)?;
         assert_eq!(res, 69.0);
-		Ok(())
+        Ok(())
     }
 
     #[test]
-    fn main_add() -> anyhow::Result<()>{
+    fn main_add() -> anyhow::Result<()> {
         let src = include_str!("../examples/main_add.lang");
         let res = parse_and_run::<f64>(src)?;
         assert_eq!(res, 69.0);
-		Ok(())
+        Ok(())
     }
 
-     #[test]
-    fn main_arithmetic() -> anyhow::Result<()>{
+    #[test]
+    fn main_arithmetic() -> anyhow::Result<()> {
         let src = include_str!("../examples/main_arithmetic.lang");
         let res = parse_and_run::<f64>(src)?;
         assert_eq!(res, 69.0);
-		Ok(())
+        Ok(())
+    }
+
+    #[test]
+    fn main_bool() -> anyhow::Result<()> {
+        let src = include_str!("../examples/main_bool.lang");
+        let res = parse_and_run::<bool>(src)?;
+        assert!(res);
+        Ok(())
+    }
+
+    #[test]
+    fn main_if() -> anyhow::Result<()> {
+        let src = include_str!("../examples/main_if.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+        Ok(())
+    }
+
+    #[test]
+    fn main_call() -> anyhow::Result<()> {
+        let src = include_str!("../examples/main_call.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+        Ok(())
     }
 }
