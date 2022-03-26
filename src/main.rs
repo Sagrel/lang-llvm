@@ -4,6 +4,7 @@ extern crate inkwell;
 
 use std::{env, fs};
 
+use anyhow::Context;
 use lang_llvm::compile_and_run;
 
 use lang_frontend::parse_file;
@@ -13,7 +14,7 @@ pub fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = env::args().nth(1) {
         path
     } else {
-        "./examples/simple.lang".to_owned()
+        "examples/main_69.lang".to_owned()
     };
 
     let src = fs::read_to_string(path)?;
@@ -31,5 +32,6 @@ pub fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Could not parse Ast"));
     };
 
-    compile_and_run(ast, &type_table)
+    println!("Main returned: {}", compile_and_run::<f64>(ast, &type_table, true)?);
+    Ok(())
 }
