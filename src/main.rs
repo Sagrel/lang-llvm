@@ -4,7 +4,6 @@ extern crate inkwell;
 
 use std::{env, fs};
 
-use anyhow::Context;
 use lang_llvm::compile_and_run;
 
 use lang_frontend::parse_file;
@@ -14,7 +13,7 @@ pub fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = env::args().nth(1) {
         path
     } else {
-        "examples/main_69.lang".to_owned()
+        "examples/main_arithmetic.lang".to_owned()
     };
 
     let src = fs::read_to_string(path)?;

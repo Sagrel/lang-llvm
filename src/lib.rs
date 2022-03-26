@@ -57,4 +57,20 @@ mod tests {
         assert_eq!(res, 69.0);
 		Ok(())
     }
+
+    #[test]
+    fn main_add() -> anyhow::Result<()>{
+        let src = include_str!("../examples/main_add.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+		Ok(())
+    }
+
+     #[test]
+    fn main_arithmetic() -> anyhow::Result<()>{
+        let src = include_str!("../examples/main_arithmetic.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+		Ok(())
+    }
 }
