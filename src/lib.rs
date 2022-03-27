@@ -101,4 +101,12 @@ mod tests {
         assert_eq!(res, 69.0);
         Ok(())
     }
+
+    #[test]
+    fn main_var() -> anyhow::Result<()> {
+        let src = include_str!("../examples/main_var.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+        Ok(())
+    }
 }

@@ -15,13 +15,13 @@ use std::collections::HashMap;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::values::{FunctionValue, PointerValue};
+use inkwell::values::FunctionValue;
 
 pub struct Compiler<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
-    variables: HashMap<String, PointerValue<'ctx>>,
+    variables: HashMap<String, BasicValueEnum<'ctx>>,
     fn_stack: Vec<FunctionValue<'ctx>>,
     type_table: &'ctx [Type],
 }
@@ -145,7 +145,8 @@ impl<'ctx> Compiler<'ctx> {
             }
 
             let alloc = self.builder.build_alloca(param.get_type(), name);
-            self.variables.insert(name.to_string(), alloc);
+            // HACK I have no idea how parametes work
+            //self.variables.insert(name.to_string(), alloc);
         }
 
         // Stablish the new funtion body as the lambda body
@@ -185,21 +186,25 @@ impl<'ctx> Compiler<'ctx> {
                 .context
                 .const_string(t.as_bytes(), false /* TODO investigate this */)
                 .into(),
-            Ast::Variable((Token::Ident(name), _)) => {
-                let pointer = self
-                    .variables
-                    .get(&name)
-                    .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?;
-                // FIXME this seams to crash some how
-                self.builder.build_load(*pointer, name.as_str())
-            }
+            Ast::Variable((Token::Ident(name), _)) => *self
+                .variables
+                .get(&name)
+                .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?,
             Ast::Declaration((Token::Ident(name), _), _, _, _, Some(value)) => {
                 if let (Ast::Lambda(args, _, body), _, Some(ty)) = *value {
                     let prototype = self.compile_prototype(name.as_str(), &ty)?;
                     let value = self.compile_lambda(args, *body, prototype)?;
 
-                    self.variables
-                        .insert(name, value.as_global_value().as_pointer_value());
+                    self.variables.insert(
+                        name,
+                        value
+                            .as_global_value()
+                            .as_pointer_value()
+                            .as_basic_value_enum(),
+                    );
+                } else {
+                    let value = self.compile(*value)?;
+                    self.variables.insert(name, value);
                 }
 
                 // TODO do not return weird void

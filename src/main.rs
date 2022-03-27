@@ -13,7 +13,7 @@ pub fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = env::args().nth(1) {
         path
     } else {
-        "examples/main_call.lang".to_owned()
+        "examples/main_var.lang".to_owned()
     };
 
     let src = fs::read_to_string(path)?;
