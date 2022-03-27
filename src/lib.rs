@@ -101,6 +101,14 @@ mod tests {
         assert_eq!(res, 69.0);
         Ok(())
     }
+    
+    #[test]
+    fn main_call_inmediate() -> anyhow::Result<()> {
+        let src = include_str!("../examples/main_call_inmediate.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+        Ok(())
+    }
 
     #[test]
     fn main_var() -> anyhow::Result<()> {
