@@ -1,5 +1,5 @@
 //add := () => { 35 + 34 }
-
+// FIXME make this work
 //main := () => { add() }
 
 main := () => { () => { 35 + 34 }() }

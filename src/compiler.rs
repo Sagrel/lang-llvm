@@ -4,7 +4,7 @@ use inkwell::{
     values::{BasicValue, BasicValueEnum, CallableValue},
 };
 use lang_frontend::{
-    ast::{Anotated, Ast, Declaration},
+    ast::{Anotated, Ast},
     inferer::Inferer,
     token::Token,
     types::Type,
@@ -16,7 +16,6 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::values::{FunctionValue, PointerValue};
-
 
 pub struct Compiler<'ctx> {
     context: &'ctx Context,
@@ -124,7 +123,7 @@ impl<'ctx> Compiler<'ctx> {
     ) -> Result<FunctionValue<'ctx>> {
         let names = args.iter().map(|arg| match &arg.0 {
             Ast::Variable((Token::Ident(name), _)) => name.as_str(),
-            Ast::Declaration((Token::Ident(name), _), _) => name.as_str(),
+            Ast::Declaration((Token::Ident(name), _), _, _, _, _) => name.as_str(),
             _ => panic!("fuck"),
         });
         // Set the name of the args
@@ -156,11 +155,12 @@ impl<'ctx> Compiler<'ctx> {
         // Restore the current function if we compiled a nested function, don't do it if we just compiled a top level function, as there is no current function in that case
         self.fn_stack.pop();
         if let Some(current) = self.fn_stack.last() {
-            self.builder.position_at_end(current.get_last_basic_block().unwrap());
+            self.builder
+                .position_at_end(current.get_last_basic_block().unwrap());
         }
-        
 
-        if true {//HACK f.verify(true) {
+        if true {
+            //HACK f.verify(true) {
             Ok(f)
         } else {
             Err(anyhow::anyhow!(
@@ -193,25 +193,15 @@ impl<'ctx> Compiler<'ctx> {
                 // FIXME this seams to crash some how
                 self.builder.build_load(*pointer, name.as_str())
             }
-            Ast::Declaration((Token::Ident(name), _), variant) => {
-                match *variant {
-                    Declaration::Complete(_, _) => todo!(),
-                    Declaration::OnlyType(_) => todo!(),
-                    Declaration::OnlyValue((Ast::Lambda(args, _, body), _, Some(ty)), _) => {
-                        let prototype = self.compile_prototype(name.as_str(), &ty)?;
-                        let value = self.compile_lambda(args, *body, prototype)?;
+            Ast::Declaration((Token::Ident(name), _), _, _, _, Some(value)) => {
+                if let (Ast::Lambda(args, _, body), _, Some(ty)) = *value {
+                    let prototype = self.compile_prototype(name.as_str(), &ty)?;
+                    let value = self.compile_lambda(args, *body, prototype)?;
 
-                        self.variables
-                            .insert(name, value.as_global_value().as_pointer_value());
-                    }
-                    Declaration::OnlyValue(value, _) => {
-                        /* TODO
-                        self.builder.poi
-                        self.builder.build_store(ptr, self.compile(value)?)
-                        self.variables.insert(name, );
-                        */
-                    }
+                    self.variables
+                        .insert(name, value.as_global_value().as_pointer_value());
                 }
+
                 // TODO do not return weird void
                 self.context
                     .struct_type(&[], true)
@@ -289,7 +279,7 @@ impl<'ctx> Compiler<'ctx> {
                 // after the loop
                 self.builder.position_at_end(after_block);
 
-                // FIXME what to return? If we make this function return an optional value or divide it into 2 diferent functions this can be solved. 
+                // FIXME what to return? If we make this function return an optional value or divide it into 2 diferent functions this can be solved.
                 todo!();
             }
             Ast::If(_, cond, if_body, _, else_body) => {
