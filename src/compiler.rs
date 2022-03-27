@@ -17,13 +17,13 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::values::{FunctionValue, PointerValue};
 
-// FIXME we need a Block stack so when we instantiate a lambda we can return te builder back to its original scope
+
 pub struct Compiler<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
     variables: HashMap<String, PointerValue<'ctx>>,
-    fn_value_opt: Option<FunctionValue<'ctx>>,
+    fn_stack: Vec<FunctionValue<'ctx>>,
     type_table: &'ctx [Type],
 }
 
@@ -36,7 +36,7 @@ impl<'ctx> Compiler<'ctx> {
             builder,
             module,
             variables: HashMap::new(),
-            fn_value_opt: None,
+            fn_stack: Vec::new(),
             type_table,
         }
     }
@@ -44,7 +44,7 @@ impl<'ctx> Compiler<'ctx> {
     /// Returns the `FunctionValue` representing the function being compiled.
     #[inline]
     fn fn_value(&self) -> FunctionValue<'ctx> {
-        self.fn_value_opt.unwrap()
+        *self.fn_stack.last().unwrap()
     }
 
     pub fn compile_module(mut self, ast: Vec<Anotated<Ast>>) -> anyhow::Result<Module<'ctx>> {
@@ -149,10 +149,16 @@ impl<'ctx> Compiler<'ctx> {
             self.variables.insert(name.to_string(), alloc);
         }
 
-        // stablish the current funtion body
-        self.fn_value_opt = Some(f);
+        // Stablish the new funtion body as the lambda body
+        self.fn_stack.push(f);
         let body = self.compile(body)?;
         self.builder.build_return(Some(&body));
+        // Restore the current function if we compiled a nested function, don't do it if we just compiled a top level function, as there is no current function in that case
+        self.fn_stack.pop();
+        if let Some(current) = self.fn_stack.last() {
+            self.builder.position_at_end(current.get_last_basic_block().unwrap());
+        }
+        
 
         if true {//HACK f.verify(true) {
             Ok(f)
@@ -166,7 +172,7 @@ impl<'ctx> Compiler<'ctx> {
 
     fn compile(&mut self, (node, span, ty): Anotated<Ast>) -> anyhow::Result<BasicValueEnum<'ctx>> {
         Ok(match node {
-            Ast::Error | Ast::Coment(_) => todo!(), // TODO ignore this,
+            Ast::Error | Ast::Coment(_) => todo!(), // FIXME ignore this cases and return None or something,
             Ast::Literal((Token::Bool(b), _)) => self
                 .context
                 .bool_type()
@@ -240,15 +246,15 @@ impl<'ctx> Compiler<'ctx> {
                         .into(),
                     ("-", BasicTypeEnum::FloatType(_)) => self
                         .builder
-                        .build_float_sub(l.into_float_value(), r.into_float_value(), "add float")
+                        .build_float_sub(l.into_float_value(), r.into_float_value(), "sub float")
                         .into(),
                     ("*", BasicTypeEnum::FloatType(_)) => self
                         .builder
-                        .build_float_mul(l.into_float_value(), r.into_float_value(), "add float")
+                        .build_float_mul(l.into_float_value(), r.into_float_value(), "mul float")
                         .into(),
                     ("/", BasicTypeEnum::FloatType(_)) => self
                         .builder
-                        .build_float_div(l.into_float_value(), r.into_float_value(), "add float")
+                        .build_float_div(l.into_float_value(), r.into_float_value(), "div float")
                         .into(),
                     _ => todo!(),
                 }
@@ -283,7 +289,7 @@ impl<'ctx> Compiler<'ctx> {
                 // after the loop
                 self.builder.position_at_end(after_block);
 
-                // TODO what to return?
+                // FIXME what to return? If we make this function return an optional value or divide it into 2 diferent functions this can be solved. 
                 todo!();
             }
             Ast::If(_, cond, if_body, _, else_body) => {
