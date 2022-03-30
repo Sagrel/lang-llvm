@@ -2,12 +2,11 @@ extern crate lang_frontend;
 
 extern crate inkwell;
 
-use std::{env, fs};
+use std::{env, fs, path::Path};
 
-use lang_llvm::compile_and_run;
+use lang_llvm::{compile_and_jit, compile_to_file};
 
 use lang_frontend::parse_file;
-
 
 pub fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = env::args().nth(1) {
@@ -31,6 +30,7 @@ pub fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Could not parse Ast"));
     };
 
-    println!("Main returned: {}", compile_and_run::<f64>(ast, &type_table, true)?);
+    compile_to_file(ast, &type_table, Path::new("./examples/executables/res.o"))?;
+    //println!("Main returned: {}", compile_and_run::<f64>(ast, &type_table, true)?);
     Ok(())
 }

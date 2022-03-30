@@ -1,5 +1,14 @@
+use std::{path::Path};
+
+use anyhow::Ok;
 use compiler::Compiler;
-use inkwell::{context::Context, OptimizationLevel};
+use inkwell::{
+    context::Context,
+    targets::{
+        CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple,
+    },
+    OptimizationLevel,
+};
 use lang_frontend::{
     ast::{Anotated, Ast},
     types::Type,
@@ -7,7 +16,43 @@ use lang_frontend::{
 
 mod compiler;
 
-pub fn compile_and_run<T>(
+pub fn compile_to_file(
+    ast: Vec<Anotated<Ast>>,
+    type_table: &[Type],
+    path: &Path
+) -> anyhow::Result<()> {
+    let context = Context::create();
+
+    let compiler = Compiler::new(&context, type_table);
+
+    let module = compiler.compile_module(ast)?;
+
+    module.verify().unwrap();
+
+    Target::initialize_x86(&InitializationConfig::default());
+    let opt = OptimizationLevel::Default;
+    let reloc = RelocMode::Default;
+    let model = CodeModel::Default;
+    let target = Target::from_name("x86-64").unwrap();
+    let target_machine = target
+        .create_target_machine(
+            &TargetTriple::create("x86_64-pc-windows-msvc"),
+            "x86-64",
+            "+avx2",
+            opt,
+            reloc,
+            model,
+        )
+        .unwrap();
+
+    target_machine
+        .write_to_file(&module, FileType::Object, path)
+        .unwrap();
+
+    Ok(())
+}
+
+pub fn compile_and_jit<T>(
     ast: Vec<Anotated<Ast>>,
     type_table: &[Type],
     print_module: bool,
@@ -17,6 +62,8 @@ pub fn compile_and_run<T>(
     let compiler = Compiler::new(&context, type_table);
 
     let module = compiler.compile_module(ast)?;
+
+    module.verify().unwrap();
 
     if print_module {
         module.print_to_stderr();
@@ -36,7 +83,7 @@ pub fn compile_and_run<T>(
 mod tests {
     use lang_frontend::parse_file;
 
-    use crate::compile_and_run;
+    use crate::compile_and_jit;
 
     fn parse_and_run<T>(src: &str) -> anyhow::Result<T> {
         let (_, ast_and_type_table, errors) = parse_file(src);
@@ -51,7 +98,7 @@ mod tests {
             return Err(anyhow::anyhow!("Could not parse Ast"));
         };
 
-        compile_and_run::<T>(ast, &type_table, false)
+        compile_and_jit::<T>(ast, &type_table, false)
     }
 
     #[test]
@@ -101,7 +148,7 @@ mod tests {
         assert_eq!(res, 69.0);
         Ok(())
     }
-    
+
     #[test]
     fn main_call_inmediate() -> anyhow::Result<()> {
         let src = include_str!("../examples/main_call_inmediate.lang");
