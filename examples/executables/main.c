@@ -2,6 +2,11 @@
 
 extern "C" double add();
 
-int main() {
-	printf("Res: %f", add());
+extern "C" double print(double n) {
+	printf("%f\n", n);
+	
 }
+
+//int main() {
+//	printf("Res: %f", add());
+//}

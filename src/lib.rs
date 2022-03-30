@@ -1,12 +1,10 @@
-use std::{path::Path};
+use std::path::Path;
 
 use anyhow::Ok;
 use compiler::Compiler;
 use inkwell::{
     context::Context,
-    targets::{
-        CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple,
-    },
+    targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetTriple},
     OptimizationLevel,
 };
 use lang_frontend::{
@@ -19,7 +17,7 @@ mod compiler;
 pub fn compile_to_file(
     ast: Vec<Anotated<Ast>>,
     type_table: &[Type],
-    path: &Path
+    path: &Path,
 ) -> anyhow::Result<()> {
     let context = Context::create();
 
@@ -28,6 +26,7 @@ pub fn compile_to_file(
     let module = compiler.compile_module(ast)?;
 
     module.verify().unwrap();
+    module.print_to_stderr();
 
     Target::initialize_x86(&InitializationConfig::default());
     let opt = OptimizationLevel::Default;

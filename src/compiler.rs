@@ -190,6 +190,26 @@ impl<'ctx> Compiler<'ctx> {
                 .variables
                 .get(&name)
                 .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?,
+            // HACK This is a hack to get external functions woking fast
+            Ast::Declaration((Token::Ident(name), _), _, Some(ty), _, None) => {
+                if let (Ast::Type(ty), _, _) = *ty {
+                    let prototype = self.compile_prototype(name.as_str(), &ty)?;
+
+                    self.variables.insert(
+                        name,
+                        prototype
+                            .as_global_value()
+                            .as_pointer_value()
+                            .as_basic_value_enum(),
+                    );
+                }
+
+                // TODO do not return weird void
+                self.context
+                    .struct_type(&[], true)
+                    .const_named_struct(&[])
+                    .into()
+            }
             Ast::Declaration((Token::Ident(name), _), _, _, _, Some(value)) => {
                 if let (Ast::Lambda(args, _, body), _, Some(ty)) = *value {
                     let prototype = self.compile_prototype(name.as_str(), &ty)?;
