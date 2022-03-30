@@ -8,6 +8,7 @@ use lang_llvm::{compile_and_jit, compile_to_file};
 
 use lang_frontend::parse_file;
 
+
 pub fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = env::args().nth(1) {
         path
@@ -31,6 +32,11 @@ pub fn main() -> anyhow::Result<()> {
     };
 
     compile_to_file(ast, &type_table, Path::new("./examples/executables/res.o"))?;
-    //println!("Main returned: {}", compile_and_run::<f64>(ast, &type_table, true)?);
+    /* 
+    println!(
+        "Main returned: {}",
+        compile_and_jit::<f64>(ast, &type_table, true)?
+    );
+    */
     Ok(())
 }

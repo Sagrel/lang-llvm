@@ -155,7 +155,8 @@ impl<'ctx> Compiler<'ctx> {
 
         // Stablish the new funtion body as the lambda body
         self.fn_stack.push(f);
-        let body = self.compile(body)?;
+        let body = self.compile(body)?.unwrap();
+        // FIXME This shoud take None if it is void
         self.builder.build_return(Some(&body));
         // Restore the current function if we compiled a nested function, don't do it if we just compiled a top level function, as there is no current function in that case
         self.fn_stack.pop();
@@ -175,9 +176,12 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    fn compile(&mut self, (node, span, ty): Anotated<Ast>) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        Ok(match node {
-            Ast::Error | Ast::Coment(_) => todo!(), // FIXME ignore this cases and return None or something,
+    fn compile(
+        &mut self,
+        (node, span, ty): Anotated<Ast>,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        Ok(Some(match node {
+            Ast::Error | Ast::Coment(_) => return Ok(None), // FIXME ignore this cases and return None or something,
             Ast::Literal((Token::Bool(b), _)) => self
                 .context
                 .bool_type()
@@ -237,7 +241,7 @@ impl<'ctx> Compiler<'ctx> {
                             .as_basic_value_enum(),
                     );
                 } else {
-                    let value = self.compile(*value)?;
+                    let value = self.compile(*value)?.unwrap();
                     self.variables.insert(name, value);
                 }
 
@@ -248,10 +252,10 @@ impl<'ctx> Compiler<'ctx> {
                     .into()
             }
             Ast::Call(caller, args) => {
-                let caller = self.compile(*caller)?;
+                let caller = self.compile(*caller)?.unwrap();
                 let args = args
                     .into_iter()
-                    .map(|arg| self.compile(arg).map(|res| res.into()))
+                    .map(|arg| self.compile(arg).map(|res| res.unwrap().into()))
                     .collect::<Result<Vec<_>, _>>()?;
                 // TODO see set_tail_call()
                 // TODO handle void functions
@@ -265,8 +269,8 @@ impl<'ctx> Compiler<'ctx> {
                     .expect_left("Fuckkkkkk")
             }
             Ast::Binary(l, (Token::Op(op), _), r) => {
-                let l = self.compile(*l)?;
-                let r = self.compile(*r)?;
+                let l = self.compile(*l)?.unwrap();
+                let r = self.compile(*r)?.unwrap();
                 // TODO completar un poco
                 match (op.as_str(), self.generate_type(&ty.unwrap())) {
                     ("+", BasicTypeEnum::FloatType(_)) => self
@@ -297,7 +301,7 @@ impl<'ctx> Compiler<'ctx> {
                     .append_basic_block(self.fn_value(), "after_block");
 
                 // emit condition and first jump
-                let cond = self.compile(*cond)?;
+                let cond = self.compile(*cond)?.unwrap();
                 self.builder.build_conditional_branch(
                     cond.into_int_value(),
                     body_block,
@@ -323,7 +327,7 @@ impl<'ctx> Compiler<'ctx> {
             }
             Ast::If(_, cond, if_body, _, else_body) => {
                 // build cond
-                let cond = self.compile(*cond)?;
+                let cond = self.compile(*cond)?.unwrap();
 
                 // branches
                 let if_block = self.context.append_basic_block(self.fn_value(), "if_block");
@@ -340,14 +344,14 @@ impl<'ctx> Compiler<'ctx> {
 
                 //  if body
                 self.builder.position_at_end(if_block);
-                let if_value = self.compile(*if_body)?;
+                let if_value = self.compile(*if_body)?.unwrap();
                 self.builder.build_unconditional_branch(after_block);
 
                 let if_block = self.builder.get_insert_block().unwrap(); // This adds the block?
 
                 //  else body
                 self.builder.position_at_end(else_block);
-                let else_value = self.compile(*else_body)?;
+                let else_value = self.compile(*else_body)?.unwrap();
                 self.builder.build_unconditional_branch(after_block);
 
                 let else_block = self.builder.get_insert_block().unwrap(); // This adds the block?
@@ -368,7 +372,7 @@ impl<'ctx> Compiler<'ctx> {
                 let args = args
                     .into_iter()
                     .map(|arg| self.compile(arg))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Result<Option<Vec<_>>, _>>()?.unwrap();
 
                 self.generate_type(&ty.unwrap())
                     .into_struct_type()
@@ -379,7 +383,7 @@ impl<'ctx> Compiler<'ctx> {
                 let mut res = None;
 
                 for node in nodes {
-                    res = Some(self.compile(node)?);
+                    res = self.compile(node)?;
                 }
                 // TODO this should return nothing instead of empty struct
                 res.unwrap_or_else(|| {
@@ -396,6 +400,6 @@ impl<'ctx> Compiler<'ctx> {
                 value.as_global_value().as_pointer_value().into()
             }
             _ => return Err(anyhow::anyhow!("Unexpected node at {:?}", span)),
-        })
+        }))
     }
 }

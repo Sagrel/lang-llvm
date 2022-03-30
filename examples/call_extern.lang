@@ -3,6 +3,6 @@ print_number : (Number) => Number
 
 main := () => {
 	"Hello world!".print_text
-	69.print_number
+	//69.print_number
 	0
 }
