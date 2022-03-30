@@ -1,8 +1,8 @@
-print : (Number) => Number 
+print_text : (Text) => Number 
+print_number : (Number) => Number 
 
 main := () => {
-	69.print
-	420.print
-	69.420.print
+	"Hello world!".print_text
+	69.print_number
 	0
 }

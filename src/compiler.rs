@@ -1,6 +1,6 @@
 use anyhow::{Ok, Result};
 use inkwell::{
-    types::{BasicType, BasicTypeEnum},
+    types::{BasicType, BasicTypeEnum, VectorType},
     values::{BasicValue, BasicValueEnum, CallableValue},
 };
 use lang_frontend::{
@@ -57,7 +57,11 @@ impl<'ctx> Compiler<'ctx> {
     // TODO Funtion types are turned into pointer types, that is not very nice
     fn generate_type(&self, t: &Type) -> BasicTypeEnum<'ctx> {
         match Inferer::get_most_concrete_type(t, self.type_table) {
-            Type::Text => todo!(), // TODO This should be a vector type  self.context.const_string(string, null_terminated)
+            Type::Text => self
+                .context
+                .i8_type()
+                .ptr_type(inkwell::AddressSpace::Const)
+                .into(),
             Type::Number => self.context.f64_type().into(),
             Type::Bool => self.context.bool_type().into(),
             Type::Tuple(args) => {
@@ -182,10 +186,20 @@ impl<'ctx> Compiler<'ctx> {
             Ast::Literal((Token::Number(n), _)) => {
                 self.context.f64_type().const_float(n.parse()?).into()
             }
-            Ast::Literal((Token::Text(t), _)) => self
-                .context
-                .const_string(t.as_bytes(), false /* TODO investigate this */)
-                .into(),
+            Ast::Literal((Token::Text(t), _)) => {
+                let string = self
+                    .builder
+                    .build_global_string_ptr(&(t.clone() + "\0"), t.as_str());
+
+                string
+                    .as_pointer_value()
+                    .const_cast(
+                        self.context
+                            .i8_type()
+                            .ptr_type(inkwell::AddressSpace::Const),
+                    )
+                    .into()
+            }
             Ast::Variable((Token::Ident(name), _)) => *self
                 .variables
                 .get(&name)
