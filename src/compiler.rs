@@ -21,6 +21,7 @@ pub struct Compiler<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
+    // TODO change this to a vector of hashmap to account for scoping? 
     variables: HashMap<String, BasicValueEnum<'ctx>>,
     fn_stack: Vec<FunctionValue<'ctx>>,
     type_table: &'ctx [Type],
@@ -54,32 +55,32 @@ impl<'ctx> Compiler<'ctx> {
         Ok(self.module)
     }
 
-    // TODO Funtion types are turned into pointer types, that is not very nice
     fn generate_type(&self, t: &Type) -> BasicTypeEnum<'ctx> {
         match Inferer::get_most_concrete_type(t, self.type_table) {
             Type::Text => self
-                .context
-                .i8_type()
-                .ptr_type(inkwell::AddressSpace::Const)
-                .into(),
+            .context
+            .i8_type()
+            .ptr_type(inkwell::AddressSpace::Const)
+            .into(),
             Type::Number => self.context.f64_type().into(),
             Type::Bool => self.context.bool_type().into(),
             Type::Tuple(args) => {
                 let args: Vec<_> = args
-                    .iter()
-                    .map(|arg| match self.generate_type(arg) {
-                        BasicTypeEnum::ArrayType(x) => x.into(),
-                        BasicTypeEnum::FloatType(x) => x.into(),
-                        BasicTypeEnum::IntType(x) => x.into(),
+                .iter()
+                .map(|arg| match self.generate_type(arg) {
+                    BasicTypeEnum::ArrayType(x) => x.into(),
+                    BasicTypeEnum::FloatType(x) => x.into(),
+                    BasicTypeEnum::IntType(x) => x.into(),
                         BasicTypeEnum::PointerType(x) => x.into(),
                         BasicTypeEnum::StructType(x) => x.into(),
                         BasicTypeEnum::VectorType(x) => x.into(),
                     })
                     .collect();
-                self.context.struct_type(args.as_slice(), false).into()
-            }
-            Type::Fn(args, ret) => {
-                let param_types: Vec<_> = args
+                    self.context.struct_type(args.as_slice(), false).into()
+                }
+                // HACK Funtion types are turned into pointer types, that is not very nice?
+                Type::Fn(args, ret) => {
+                    let param_types: Vec<_> = args
                     .iter()
                     .map(|arg| match self.generate_type(arg) {
                         BasicTypeEnum::ArrayType(x) => x.into(),
@@ -95,7 +96,7 @@ impl<'ctx> Compiler<'ctx> {
                     .ptr_type(inkwell::AddressSpace::Global)
                     .into()
             }
-            _ => unreachable!(),
+            _ => unreachable!("{}", t),
         }
     }
 
@@ -142,15 +143,7 @@ impl<'ctx> Compiler<'ctx> {
         self.variables.reserve(args.len());
 
         for (param, name) in f.get_param_iter().zip(names) {
-            // TODO is this match necesary or can I just reverse the iterator?
-            match entry.get_first_instruction() {
-                Some(first_instr) => self.builder.position_before(&first_instr),
-                None => self.builder.position_at_end(entry),
-            }
-
-            let alloc = self.builder.build_alloca(param.get_type(), name);
-            // HACK I have no idea how parametes work
-            //self.variables.insert(name.to_string(), alloc);
+            self.variables.insert(name.to_string(), param);
         }
 
         // Stablish the new funtion body as the lambda body

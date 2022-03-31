@@ -163,4 +163,12 @@ mod tests {
         assert_eq!(res, 69.0);
         Ok(())
     }
+
+    #[test]
+    fn add_args() -> anyhow::Result<()> {
+        let src = include_str!("../examples/add_args.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+        Ok(())
+    }
 }

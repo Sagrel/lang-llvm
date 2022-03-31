@@ -13,7 +13,7 @@ pub fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = env::args().nth(1) {
         path
     } else {
-        "examples/call_extern.lang".to_owned()
+        "examples/add_args.lang".to_owned()
     };
 
     let src = fs::read_to_string(path)?;
@@ -31,12 +31,16 @@ pub fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Could not parse Ast"));
     };
 
-    compile_to_file(ast, &type_table, Path::new("./examples/executables/res.o"))?;
-    /* 
+    for (node,_,_) in &ast {
+        println!("{}", node);
+    }
+
+    //compile_to_file(ast, &type_table, Path::new("./examples/executables/res.o"))?;
+     
     println!(
         "Main returned: {}",
         compile_and_jit::<f64>(ast, &type_table, true)?
     );
-    */
+    
     Ok(())
 }

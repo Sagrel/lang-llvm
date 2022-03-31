@@ -1,0 +1,12 @@
+// a + b => t2 = t3
+// return a + b => t2 = t4
+// add(a,b) => t0 = (t2, t3) => t4
+// return add(35,34) =>  t0 = (Number, Number) => t5
+// t1 = () => t5
+ 
+add := (a, b) => {a+b}
+
+
+main := () => {
+	34.add(35)
+}
