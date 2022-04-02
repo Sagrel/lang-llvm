@@ -1,10 +1,10 @@
 use anyhow::{Ok, Result};
 use inkwell::{
-    types::{BasicType, BasicTypeEnum, VectorType},
-    values::{BasicValue, BasicValueEnum, CallableValue},
+    types::{BasicType, BasicTypeEnum},
+    values::{AggregateValue, BasicValue, BasicValueEnum, CallableValue},
 };
 use lang_frontend::{
-    ast::{Anotated, Ast},
+    ast::{Anotated, Ast, Pattern},
     inferer::Inferer,
     token::Token,
     types::Type,
@@ -21,7 +21,7 @@ pub struct Compiler<'ctx> {
     context: &'ctx Context,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
-    // TODO change this to a vector of hashmap to account for scoping? 
+    // TODO change this to a vector of hashmap to account for scoping?
     variables: HashMap<String, BasicValueEnum<'ctx>>,
     fn_stack: Vec<FunctionValue<'ctx>>,
     type_table: &'ctx [Type],
@@ -58,29 +58,19 @@ impl<'ctx> Compiler<'ctx> {
     fn generate_type(&self, t: &Type) -> BasicTypeEnum<'ctx> {
         match Inferer::get_most_concrete_type(t, self.type_table) {
             Type::Text => self
-            .context
-            .i8_type()
-            .ptr_type(inkwell::AddressSpace::Const)
-            .into(),
+                .context
+                .i8_type()
+                .ptr_type(inkwell::AddressSpace::Const)
+                .into(),
             Type::Number => self.context.f64_type().into(),
             Type::Bool => self.context.bool_type().into(),
             Type::Tuple(args) => {
-                let args: Vec<_> = args
-                .iter()
-                .map(|arg| match self.generate_type(arg) {
-                    BasicTypeEnum::ArrayType(x) => x.into(),
-                    BasicTypeEnum::FloatType(x) => x.into(),
-                    BasicTypeEnum::IntType(x) => x.into(),
-                        BasicTypeEnum::PointerType(x) => x.into(),
-                        BasicTypeEnum::StructType(x) => x.into(),
-                        BasicTypeEnum::VectorType(x) => x.into(),
-                    })
-                    .collect();
-                    self.context.struct_type(args.as_slice(), false).into()
-                }
-                // HACK Funtion types are turned into pointer types, that is not very nice?
-                Type::Fn(args, ret) => {
-                    let param_types: Vec<_> = args
+                let args: Vec<_> = args.iter().map(|arg| self.generate_type(arg)).collect();
+                self.context.struct_type(args.as_slice(), false).into()
+            }
+            // HACK Funtion types are turned into pointer types, that is not very nice?
+            Type::Fn(args, ret) => {
+                let param_types: Vec<_> = args
                     .iter()
                     .map(|arg| match self.generate_type(arg) {
                         BasicTypeEnum::ArrayType(x) => x.into(),
@@ -98,6 +88,14 @@ impl<'ctx> Compiler<'ctx> {
             }
             _ => unreachable!("{}", t),
         }
+    }
+
+    fn void_value(&self) -> BasicValueEnum<'ctx> {
+        self.context
+            .struct_type(&[], true)
+            .const_zero()
+            //.const_named_struct(&[])
+            .into()
     }
 
     // Creates a prototype for the function
@@ -120,37 +118,88 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
+    fn pattern_asigment(
+        &mut self,
+        (pattern, _, _): Anotated<Pattern>,
+        value: Anotated<Ast>,
+    ) -> anyhow::Result<()> {
+        match pattern {
+            Pattern::Var((name_tk, _)) => {
+                let name = name_tk.to_string();
+                if let (Ast::Lambda(args, _, body), _, Some(ty)) = value {
+                    let prototype = self.compile_prototype(name.as_str(), &ty)?;
+                    let value = self.compile_lambda(args, *body, prototype)?;
+
+                    self.variables.insert(
+                        name,
+                        value
+                            .as_global_value()
+                            .as_pointer_value()
+                            .as_basic_value_enum(),
+                    );
+                } else {
+                    let value = self.compile(value)?.unwrap();
+                    self.variables.insert(name, value);
+                }
+            }
+            Pattern::Tuple(args) => {
+                if let Type::Tuple(_) = value.2.clone().unwrap() {
+                    let value = self.compile(value)?.unwrap();
+
+                    for (index, pattern) in args.into_iter().enumerate() {
+                        let atriv = self
+                            .builder
+                            .build_extract_value(value.into_struct_value(), index as u32, "atriv")
+                            .unwrap();
+                        // BIG HACK
+                        self.variables.insert("__temp".to_string(), atriv);
+                        let atriv = (
+                            Ast::Variable((Token::Ident("__temp".to_string()), pattern.1.clone())),
+                            pattern.1.clone(),
+                            pattern.2.clone(),
+                        );
+                        self.pattern_asigment(pattern, atriv)?;
+                    }
+                } else {
+                    return Err(anyhow::anyhow!("This should be a tuple, right?"));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn compile_lambda(
         &mut self,
         args: Vec<Anotated<Ast>>,
         body: Anotated<Ast>,
         f: FunctionValue<'ctx>,
     ) -> Result<FunctionValue<'ctx>> {
-        let names = args.iter().map(|arg| match &arg.0 {
-            Ast::Variable((Token::Ident(name), _)) => name.as_str(),
-            Ast::Declaration((Token::Ident(name), _), _, _, _, _) => name.as_str(),
-            _ => panic!("fuck"),
-        });
-        // Set the name of the args
-        for (param, name) in f.get_param_iter().zip(names.clone()) {
-            param.set_name(name)
-        }
-
         let entry = self.context.append_basic_block(f, "entry");
         self.builder.position_at_end(entry);
 
-        // build variables map
-        self.variables.reserve(args.len());
-
-        for (param, name) in f.get_param_iter().zip(names) {
-            self.variables.insert(name.to_string(), param);
+        for (param_value, param) in f.get_param_iter().zip(args.into_iter()) {
+            if let Ast::Declaration(pattern, _, _, _, _) = param.0 {
+                // BIG HACK
+                self.variables.insert("__temp".to_string(), param_value);
+                let param_value = (
+                    Ast::Variable((Token::Ident("__temp".to_string()), pattern.1.clone())),
+                    pattern.1.clone(),
+                    pattern.2.clone(),
+                );
+                self.pattern_asigment(pattern, param_value)?;
+            }
         }
 
         // Stablish the new funtion body as the lambda body
         self.fn_stack.push(f);
-        let body = self.compile(body)?.unwrap();
-        // FIXME This shoud take None if it is void
-        self.builder.build_return(Some(&body));
+        let is_void = body.2.as_ref().unwrap() == &Type::void();
+        let value = self.compile(body)?;
+        if !is_void {
+            self.builder.build_return(Some(&value.unwrap()));
+        } else {
+            self.builder.build_return(None);
+        }
+
         // Restore the current function if we compiled a nested function, don't do it if we just compiled a top level function, as there is no current function in that case
         self.fn_stack.pop();
         if let Some(current) = self.fn_stack.last() {
@@ -202,7 +251,13 @@ impl<'ctx> Compiler<'ctx> {
                 .get(&name)
                 .ok_or_else(|| anyhow::anyhow!("Missing declaration for {}", name))?,
             // HACK This is a hack to get external functions woking fast
-            Ast::Declaration((Token::Ident(name), _), _, Some(ty), _, None) => {
+            Ast::Declaration(
+                (Pattern::Var((Token::Ident(name), _)), _, _),
+                _,
+                Some(ty),
+                _,
+                None,
+            ) => {
                 if let (Ast::Type(ty), _, _) = *ty {
                     let prototype = self.compile_prototype(name.as_str(), &ty)?;
 
@@ -215,34 +270,12 @@ impl<'ctx> Compiler<'ctx> {
                     );
                 }
 
-                // TODO do not return weird void
-                self.context
-                    .struct_type(&[], true)
-                    .const_named_struct(&[])
-                    .into()
+                self.void_value()
             }
-            Ast::Declaration((Token::Ident(name), _), _, _, _, Some(value)) => {
-                if let (Ast::Lambda(args, _, body), _, Some(ty)) = *value {
-                    let prototype = self.compile_prototype(name.as_str(), &ty)?;
-                    let value = self.compile_lambda(args, *body, prototype)?;
+            Ast::Declaration(pattern, _, _, _, Some(value)) => {
+                self.pattern_asigment(pattern, *value)?;
 
-                    self.variables.insert(
-                        name,
-                        value
-                            .as_global_value()
-                            .as_pointer_value()
-                            .as_basic_value_enum(),
-                    );
-                } else {
-                    let value = self.compile(*value)?.unwrap();
-                    self.variables.insert(name, value);
-                }
-
-                // TODO do not return weird void
-                self.context
-                    .struct_type(&[], true)
-                    .const_named_struct(&[])
-                    .into()
+                self.void_value()
             }
             Ast::Call(caller, args) => {
                 let caller = self.compile(*caller)?.unwrap();
@@ -365,7 +398,8 @@ impl<'ctx> Compiler<'ctx> {
                 let args = args
                     .into_iter()
                     .map(|arg| self.compile(arg))
-                    .collect::<Result<Option<Vec<_>>, _>>()?.unwrap();
+                    .collect::<Result<Option<Vec<_>>, _>>()?
+                    .unwrap();
 
                 self.generate_type(&ty.unwrap())
                     .into_struct_type()
@@ -379,12 +413,7 @@ impl<'ctx> Compiler<'ctx> {
                     res = self.compile(node)?;
                 }
                 // TODO this should return nothing instead of empty struct
-                res.unwrap_or_else(|| {
-                    self.context
-                        .struct_type(&[], true)
-                        .const_named_struct(&[])
-                        .into()
-                })
+                res.unwrap_or_else(|| self.void_value())
             }
             // This is only for anonymous lambdas, named ones are handled with definitions
             Ast::Lambda(args, _, body) => {

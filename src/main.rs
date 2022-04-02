@@ -13,7 +13,7 @@ pub fn main() -> anyhow::Result<()> {
     let path = if let Some(path) = env::args().nth(1) {
         path
     } else {
-        "examples/add_args.lang".to_owned()
+        "examples/executables/tests/call_extern.lang".to_owned()
     };
 
     let src = fs::read_to_string(path)?;
@@ -35,12 +35,12 @@ pub fn main() -> anyhow::Result<()> {
         println!("{}", node);
     }
 
-    //compile_to_file(ast, &type_table, Path::new("./examples/executables/res.o"))?;
+    compile_to_file(ast, &type_table, Path::new("./examples/executables/res.o"))?;
      
-    println!(
+    /* println!(
         "Main returned: {}",
         compile_and_jit::<f64>(ast, &type_table, true)?
-    );
+    ); */
     
     Ok(())
 }

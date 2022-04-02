@@ -1,0 +1,4 @@
+main := () => {
+	(a, b) := (69, "Hello world!")
+	a
+}

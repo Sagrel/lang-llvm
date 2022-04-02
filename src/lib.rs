@@ -171,4 +171,20 @@ mod tests {
         assert_eq!(res, 69.0);
         Ok(())
     }
+    
+    #[test]
+    fn tuple_asign() -> anyhow::Result<()> {
+        let src = include_str!("../examples/tuple_asign.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+        Ok(())
+    }
+
+    #[test]
+    fn tuple_param() -> anyhow::Result<()> {
+        let src = include_str!("../examples/tuple_param.lang");
+        let res = parse_and_run::<f64>(src)?;
+        assert_eq!(res, 69.0);
+        Ok(())
+    }
 }

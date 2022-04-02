@@ -1,0 +1,9 @@
+print_text : (Text) => Number
+print_number : (Number) => Number
+
+main := () => {
+	(a, b) := (69, "Hello world!")
+	print_text(b)
+	print_number(69)
+	0
+}
